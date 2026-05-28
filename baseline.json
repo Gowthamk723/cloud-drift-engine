@@ -1,0 +1,10 @@
+{
+  "security_groups": [
+    {
+      "id": "sg-prod-db-01",
+      "name": "production-db",
+      "allowed_ports": [5432],
+      "allowed_cidr": "10.0.0.5/32"
+    }
+  ]
+}
