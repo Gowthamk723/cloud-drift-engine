@@ -1,50 +1,72 @@
 import json
 import sys
+import os
+import urllib.request
 
 def load_json_file(filepath):
-    """Safely loads and parses a JSON file."""
     try:
         with open(filepath, 'r') as file:
             return json.load(file)
-    except FileNotFoundError:
-        print(f"[ERROR] Critical file missing: {filepath}")
+    except Exception as e:
+        print(f"[ERROR] Could not load {filepath}: {e}")
         sys.exit(1)
-    except json.JSONDecodeError:
-        print(f"[ERROR] Corrupt JSON formatting in: {filepath}")
-        sys.exit(1)
+
+def send_discord_alert(message):
+    """Pulls the secret Webhook URL from the environment and fires the alert."""
+    webhook_url = os.environ.get('DISCORD_WEBHOOK_URL')
+    
+    if not webhook_url:
+        print("[WARN] No Discord Webhook URL provided in environment. Skipping chat alert.")
+        return
+
+    # Package the message into a JSON format Discord understands
+    payload = {
+        "content": f"🚨 **CLOUD SECURITY DRIFT DETECTED** 🚨\n```yaml\n{message}\n```"
+    }
+    
+    # Fire the payload at Discord
+    req = urllib.request.Request(
+	        webhook_url, 
+        data=json.dumps(payload).encode('utf-8'), 
+        headers={'Content-Type': 'application/json',
+		 'User-Agent': 'CloudDriftEngine/1.0'}
+    )
+    
+    try:
+        urllib.request.urlopen(req)
+        print("[INFO] Webhook alert successfully dispatched to Discord!")
+    except Exception as e:
+        print(f"[ERROR] Failed to send Discord alert: {e}")
 
 def analyze_compliance(baseline, live_state):
-    """Compares live state against baseline to detect security drift."""
     print("[INFO] Starting Multi-Cloud Compliance Scan...")
     drift_detected = False
-
-    # Create a lookup map of baseline rules by their unique security group ID
     baseline_rules = {sg['id']: sg for sg in baseline.get('security_groups', [])}
 
     for live_sg in live_state.get('security_groups', []):
         sg_id = live_sg['id']
+        rule = baseline_rules.get(sg_id)
         
-        # Check if the security group is recognized
-        if sg_id not in baseline_rules:
-            print(f"[ALERT] Rogue Security Group detected in live environment! ID: {sg_id}")
-            drift_detected = True
+        if not rule:
             continue
             
-        rule = baseline_rules[sg_id]
-        
-        # Engineering Check: Compare network access (CIDR block)
         if live_sg['allowed_cidr'] != rule['allowed_cidr']:
-            print(f"\n[CRITICAL DRIFT DETECTED]")
-            print(f"Resource: Security Group '{live_sg['name']}' ({sg_id})")
-            print(f"Expected Network: {rule['allowed_cidr']}")
-            print(f"Actual Live Network: {live_sg['allowed_cidr']}")
-            print(f"Risk Assessment: EXPOSED TO INTERNET (Potential Data Exfiltration)\n")
+            # Create a clean message format
+            alert_msg = (
+                f"Resource: {live_sg['name']} ({sg_id})\n"
+                f"Expected Network: {rule['allowed_cidr']}\n"
+                f"Actual Live Network: {live_sg['allowed_cidr']}\n"
+                f"Risk: EXPOSED TO INTERNET (Potential Exfiltration)"
+            )
+            
+            print(f"\n[CRITICAL DRIFT DETECTED]\n{alert_msg}\n")
+            
+            # Trigger the Discord webhook
+            send_discord_alert(alert_msg)
             drift_detected = True
 
     if not drift_detected:
         print("[SUCCESS] Environment compliant. Zero drift detected.")
 
-if __name__ == "__main__":
-    baseline_data = load_json_file('baseline.json')
-    live_state_data = load_json_file('live-state.json')
-    analyze_compliance(baseline_data, live_state_data)
+if __name__ == "__main__": analyze_compliance(load_json_file('baseline.json'), 
+    load_json_file('live-state.json'))
