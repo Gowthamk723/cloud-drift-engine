@@ -1,0 +1,22 @@
+name: Cloud Security Drift Scan
+
+# 1. THE TRIGGERS: When should this run?
+on:
+  schedule:
+    - cron: '0 * * * *' # Runs automatically at the top of every hour
+  workflow_dispatch:    # Adds a manual "Run" button in GitHub so we can test it immediately
+
+jobs:
+  run-scan:
+    runs-on: ubuntu-latest # GitHub provides a free, temporary Linux server
+    
+    steps:
+      - name: 📥 Download Code
+        uses: actions/checkout@v4
+
+      - name: 🏗️ Build Docker Image
+        run: docker build -t cloud-drift-engine:v3 .
+
+      - name: 🚀 Run Security Engine
+        # We securely pull the secret from GitHub's vault
+        run: docker run -e DISCORD_WEBHOOK_URL="${{ secrets.DISCORD_WEBHOOK_URL }}" cloud-drift-engine:v3
